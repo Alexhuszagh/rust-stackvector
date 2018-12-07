@@ -116,6 +116,9 @@ pub trait VecLike<T>:
 
     /// Append an element to the vector.
     fn push(&mut self, value: T);
+
+    /// Pop an element from the end of the vector.
+    fn pop(&mut self) -> Option<T>;
 }
 
 #[allow(deprecated)]
@@ -123,6 +126,11 @@ impl<T> VecLike<T> for Vec<T> {
     #[inline]
     fn push(&mut self, value: T) {
         Vec::push(self, value);
+    }
+
+    #[inline]
+    fn pop(&mut self) -> Option<T> {
+        Vec::pop(self)
     }
 }
 
@@ -810,6 +818,11 @@ impl<A: Array> VecLike<A::Item> for StackVec<A> {
     #[inline]
     fn push(&mut self, value: A::Item) {
         StackVec::push(self, value);
+    }
+
+    #[inline]
+    fn pop(&mut self) -> Option<A::Item> {
+        StackVec::pop(self)
     }
 }
 
