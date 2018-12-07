@@ -678,7 +678,7 @@ impl<A: Array> StackVec<A> where A::Item: Clone {
             let ptr = v.as_mut_ptr();
             let mut local_len = SetLenOnDrop::new(&mut v.length);
             for i in 0..n as isize {
-                ::std::ptr::write(ptr.offset(i), elem.clone());
+                ptr::write(ptr.offset(i), elem.clone());
                 local_len.increment_len(1);
             }
         }
