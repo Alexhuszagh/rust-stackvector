@@ -372,14 +372,21 @@ impl<A: Array> StackVec<A> {
     /// This will explicitly set the size of the vector, without actually
     /// modifying its buffers, so it is up to the caller to ensure that the
     /// vector is actually the specified size.
+    #[inline]
     pub unsafe fn set_len(&mut self, new_len: usize) {
         self.length = new_len;
     }
 
-    /// The number of elements stored in the vector
+    /// The number of elements stored in the vector.
     #[inline]
     pub fn len(&self) -> usize {
         self.length
+    }
+
+    /// If the vector is empty.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     /// The number of items the vector can hold.
@@ -440,6 +447,7 @@ impl<A: Array> StackVec<A> {
     /// Extracts a slice containing the entire vector.
     ///
     /// Equivalent to `&s[..]`.
+    #[inline]
     pub fn as_slice(&self) -> &[A::Item] {
         self
     }
@@ -447,6 +455,7 @@ impl<A: Array> StackVec<A> {
     /// Extracts a mutable slice of the entire vector.
     ///
     /// Equivalent to `&mut s[..]`.
+    #[inline]
     pub fn as_mut_slice(&mut self) -> &mut [A::Item] {
         self
     }
@@ -804,8 +813,10 @@ macro_rules! impl_index {
 impl_index!(usize, A::Item);
 impl_index!(ops::Range<usize>, [A::Item]);
 impl_index!(ops::RangeFrom<usize>, [A::Item]);
-impl_index!(ops::RangeTo<usize>, [A::Item]);
 impl_index!(ops::RangeFull, [A::Item]);
+impl_index!(ops::RangeInclusive<usize>, [A::Item]);
+impl_index!(ops::RangeTo<usize>, [A::Item]);
+impl_index!(ops::RangeToInclusive<usize>, [A::Item]);
 
 impl<A: Array> ExtendFromSlice<A::Item> for StackVec<A> where A::Item: Copy {
     fn extend_from_slice(&mut self, other: &[A::Item]) {
