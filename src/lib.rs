@@ -1085,7 +1085,6 @@ macro_rules! stackvec {
         $crate::StackVec::from_elem($elem, $n)
     });
     ($($x:expr),*$(,)*) => ({
-        let count = 0usize $(+ stackvec!(@one $x))*;
         let mut vec = $crate::StackVec::new();
         $(vec.push($x);)*
         vec
