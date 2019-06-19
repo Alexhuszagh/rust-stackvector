@@ -1085,9 +1085,13 @@ macro_rules! stackvec {
         $crate::StackVec::from_elem($elem, $n)
     });
     ($($x:expr),*$(,)*) => ({
-        let mut vec = $crate::StackVec::new();
-        $(vec.push($x);)*
-        vec
+        // Allow an unused mut variable, since if the sequence is empty,
+        // the vec will never be mutated.
+        #[allow(unused_mut)] {
+            let mut vec = $crate::StackVec::new();
+            $(vec.push($x);)*
+            vec
+        }
     });
 }
 
