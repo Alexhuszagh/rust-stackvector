@@ -58,6 +58,7 @@ trait PointerMethods {
 }
 
 impl<T> PointerMethods for *const T {
+    #[inline(always)]
     unsafe fn padd(self, count: usize) -> Self {
         #[cfg(has_pointer_methods)]
         return self.add(count);
@@ -68,6 +69,7 @@ impl<T> PointerMethods for *const T {
 }
 
 impl<T> PointerMethods for *mut T {
+    #[inline(always)]
     unsafe fn padd(self, count: usize) -> Self {
         #[cfg(has_pointer_methods)]
         return self.add(count);
