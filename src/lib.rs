@@ -541,32 +541,43 @@ impl<A: Array> StackVec<A> {
     /// Insert multiple elements at position `index`, shifting all following elements toward the
     /// back.
     pub fn insert_many<I: iter::IntoIterator<Item=A::Item>>(&mut self, index: usize, iterable: I) {
-        assert!(index <= self.len());
-
         let iter = iterable.into_iter();
-        let (lower_bound, upper_bound) = iter.size_hint();
-        let upper_bound = upper_bound.expect("iterable must provide upper bound.");
-        assert!(self.len() + upper_bound <= self.capacity());
-
         if index == self.len() {
             return self.extend(iter);
         }
 
+        let (lower_size_bound, _) = iter.size_hint();
+        assert!(lower_size_bound <= std::isize::MAX as usize);  // Ensure offset is indexable
+        assert!(index + lower_size_bound >= index);             // Protect against overflow
+        assert!(self.len() + lower_size_bound <= self.capacity());
+
         unsafe {
             let old_len = self.len();
-            let ptr = self.as_mut_ptr().padd(index);
+            assert!(index <= old_len);
+            let mut ptr = self.as_mut_ptr().add(index);
 
             // Move the trailing elements.
-            ptr::copy(ptr, ptr.padd(lower_bound), old_len - index);
+            ptr::copy(ptr, ptr.add(lower_size_bound), old_len - index);
 
             // In case the iterator panics, don't double-drop the items we just copied above.
             self.set_len(index);
 
             let mut num_added = 0;
             for element in iter {
-                let cur = ptr.padd(num_added);
+                let mut cur = ptr.add(num_added);
+                if num_added >= lower_size_bound {
+                    // Iterator provided more elements than the hint.  Move trailing items again.
+                    assert!(self.len() + 1 <= self.capacity());
+                    ptr = self.as_mut_ptr().add(index);
+                    cur = ptr.add(num_added);
+                    ptr::copy(cur, cur.add(1), old_len - index);
+                }
                 ptr::write(cur, element);
                 num_added += 1;
+            }
+            if num_added < lower_size_bound {
+                // Iterator provided fewer elements than the hint
+                ptr::copy(ptr.add(lower_size_bound), ptr.add(num_added), old_len - index);
             }
 
             self.set_len(old_len + num_added);
