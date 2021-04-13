@@ -33,4 +33,4 @@ StackVector is derived from Servo's [smallvec](https://github.com/servo/rust-sma
 
 # Version Support
 
-Stackvector has been tested on version of Rustc as low as 1.20.0 (needed for `mem::ManuallyDrop`).
+Stackvector has been tested on version of Rustc as low as 1.36.0 (needed for `mem::MaybeUninit`).

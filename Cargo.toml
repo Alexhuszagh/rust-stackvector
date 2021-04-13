@@ -9,7 +9,7 @@ license = "MIT/Apache-2.0"
 name = "stackvector"
 readme = "README.md"
 repository = "https://github.com/Alexhuszagh/rust-stackvector"
-version = "1.0.9"
+version = "1.1.0"
 build = "build.rs"
 
 [badges]

@@ -131,7 +131,6 @@ impl_array! { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 20, 24, 
 /// let mut stack_vec = StackVec::<[u8; 8]>::new();
 /// initialize(&mut stack_vec);
 /// ```
-#[deprecated(note = "Use `Extend` and `Deref<[T]>` instead")]
 pub trait VecLike<T>:
         ops::Index<usize, Output=T> +
         ops::IndexMut<usize> +
@@ -293,19 +292,17 @@ pub struct StackVec<A: Array> {
     // The capacity field is used for iteration and other optimizations.
     // Publicly expose the fields, so they may be used in constant
     // initialization.
+    pub data: mem::MaybeUninit<A>,
     pub length: usize,
-    pub data: mem::ManuallyDrop<A>,
 }
 
 impl<A: Array> StackVec<A> {
     /// Construct an empty vector
     #[inline]
     pub fn new() -> StackVec<A> {
-        unsafe {
-            StackVec {
-                length: 0,
-                data: mem::uninitialized(),
-            }
+        StackVec {
+            length: 0,
+            data: mem::MaybeUninit::uninit(),
         }
     }
 
@@ -328,6 +325,7 @@ impl<A: Array> StackVec<A> {
     }
 
     /// Construct a new `StackVec` from a `Vec<A::Item>` without bounds checking.
+    #[allow(deprecated)]
     pub unsafe fn from_vec_unchecked(mut vec: Vec<A::Item>) -> StackVec<A> {
         let mut data: A = mem::uninitialized();
         let len = vec.len();
@@ -336,7 +334,7 @@ impl<A: Array> StackVec<A> {
 
         StackVec {
             length: len,
-            data: mem::ManuallyDrop::new(data),
+            data: mem::MaybeUninit::new(data),
         }
     }
 
@@ -355,7 +353,7 @@ impl<A: Array> StackVec<A> {
     pub fn from_buf(buf: A) -> StackVec<A> {
         StackVec {
             length: A::size(),
-            data: mem::ManuallyDrop::new(buf),
+            data: mem::MaybeUninit::new(buf),
         }
     }
 
@@ -395,7 +393,7 @@ impl<A: Array> StackVec<A> {
     pub unsafe fn from_buf_and_len_unchecked(buf: A, len: usize) -> StackVec<A> {
         StackVec {
             length: len,
-            data: mem::ManuallyDrop::new(buf),
+            data: mem::MaybeUninit::new(buf),
         }
     }
 
@@ -595,9 +593,9 @@ impl<A: Array> StackVec<A> {
             Err(self)
         } else {
             unsafe {
-                let data = ptr::read(&self.data);
-                mem::forget(self);
-                Ok(mem::ManuallyDrop::into_inner(data))
+                let this = mem::ManuallyDrop::new(self);
+                let array = ptr::read(this.as_ptr() as *const A);
+                Ok(array)
             }
         }
     }
@@ -674,9 +672,10 @@ impl<A: Array> StackVec<A> where A::Item: Copy {
         StackVec {
             length: slice.len(),
             data: unsafe {
-                let mut data: A = mem::uninitialized();
-                ptr::copy_nonoverlapping(slice.as_ptr(), data.ptr_mut(), slice.len());
-                mem::ManuallyDrop::new(data)
+                let mut data: mem::MaybeUninit<A> = mem::MaybeUninit::uninit();
+                let ptr = data.as_mut_ptr() as *mut A::Item;
+                ptr::copy_nonoverlapping(slice.as_ptr(), ptr, slice.len());
+                data
             }
         }
     }
@@ -751,7 +750,8 @@ impl<A: Array> ops::Deref for StackVec<A> {
     #[inline]
     fn deref(&self) -> &[A::Item] {
         unsafe {
-            slice::from_raw_parts(self.data.ptr(), self.len())
+            let ptr = self.data.as_ptr() as *const A::Item;
+            slice::from_raw_parts(ptr, self.len())
         }
     }
 }
@@ -760,7 +760,8 @@ impl<A: Array> ops::DerefMut for StackVec<A> {
     #[inline]
     fn deref_mut(&mut self) -> &mut [A::Item] {
         unsafe {
-            slice::from_raw_parts_mut(self.data.ptr_mut(), self.len())
+            let ptr = self.data.as_mut_ptr() as *mut A::Item;
+            slice::from_raw_parts_mut(ptr, self.len())
         }
     }
 }
@@ -871,7 +872,6 @@ impl<A: Array> ExtendFromSlice<A::Item> for StackVec<A> where A::Item: Copy {
     }
 }
 
-#[allow(deprecated)]
 impl<A: Array> VecLike<A::Item> for StackVec<A> {
     #[inline]
     fn push(&mut self, value: A::Item) {
@@ -1211,6 +1211,8 @@ mod test {
     /// https://github.com/servo/rust-smallvec/issues/5
     #[test]
     fn issue_5() {
+        let vec = StackVec::<[&u32; 2]>::new();
+        println!("{:?}", Some(vec));
         assert!(Some(StackVec::<[&u32; 2]>::new()).is_some());
     }
 
@@ -1504,7 +1506,6 @@ mod test {
     }
 
     #[test]
-    #[allow(deprecated)]
     fn veclike_deref_slice() {
         use super::VecLike;
 
