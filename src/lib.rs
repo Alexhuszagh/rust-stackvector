@@ -20,10 +20,12 @@
 //! 2.0 license.
 
 #![cfg_attr(not(feature = "std"), no_std)]
-#![cfg_attr(not(feature = "std"), feature(alloc))]
 
-#[cfg(not(feature = "std"))]
+#[cfg(all(test, not(feature = "std")))]
 #[macro_use]
+extern crate alloc;
+
+#[cfg(all(not(test), not(feature = "std")))]
 extern crate alloc;
 
 #[cfg(not(feature = "std"))]
@@ -39,6 +41,9 @@ pub(crate) mod lib {
 
     #[cfg(not(feature = "std"))]
     pub(crate) use core::*;
+
+    #[cfg(all(test, not(feature = "std")))]
+    pub(crate) use alloc::{boxed, rc, borrow};
 }
 
 use lib::borrow::{Borrow, BorrowMut};
@@ -545,7 +550,7 @@ impl<A: Array> StackVec<A> {
         }
 
         let (lower_size_bound, _) = iter.size_hint();
-        assert!(lower_size_bound <= std::isize::MAX as usize);  // Ensure offset is indexable
+        assert!(lower_size_bound <= lib::isize::MAX as usize);  // Ensure offset is indexable
         assert!(index + lower_size_bound >= index);             // Protect against overflow
         assert!(self.len() + lower_size_bound <= self.capacity());
 
@@ -1131,8 +1136,10 @@ macro_rules! stackvec {
 #[cfg(test)]
 mod test {
     use super::*;
-    use super::lib::iter::FromIterator;
-    use super::lib::rc::Rc;
+    use crate::lib::iter::FromIterator;
+    use crate::lib::borrow::ToOwned;
+    use crate::lib::boxed::Box;
+    use crate::lib::rc::Rc;
 
     #[test]
     pub fn test_zero() {
@@ -1211,8 +1218,6 @@ mod test {
     /// https://github.com/servo/rust-smallvec/issues/5
     #[test]
     fn issue_5() {
-        let vec = StackVec::<[&u32; 2]>::new();
-        println!("{:?}", Some(vec));
         assert!(Some(StackVec::<[&u32; 2]>::new()).is_some());
     }
 
@@ -1435,7 +1440,7 @@ mod test {
 
     #[test]
     fn test_borrow() {
-        use std::borrow::Borrow;
+        use lib::borrow::Borrow;
 
         let mut a: StackVec<[u32; 3]> = StackVec::new();
         a.push(1);
@@ -1448,7 +1453,7 @@ mod test {
 
     #[test]
     fn test_borrow_mut() {
-        use std::borrow::BorrowMut;
+        use lib::borrow::BorrowMut;
 
         let mut a: StackVec<[u32; 3]> = StackVec::new();
         a.push(1);
