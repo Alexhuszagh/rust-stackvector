@@ -43,7 +43,7 @@ pub(crate) mod lib {
     pub(crate) use core::*;
 
     #[cfg(all(test, not(feature = "std")))]
-    pub(crate) use alloc::{boxed, rc, borrow};
+    pub(crate) use alloc::{borrow, boxed, rc};
 }
 
 use lib::borrow::{Borrow, BorrowMut};
@@ -137,19 +137,19 @@ impl_array! { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 20, 24, 
 /// initialize(&mut stack_vec);
 /// ```
 pub trait VecLike<T>:
-        ops::Index<usize, Output=T> +
-        ops::IndexMut<usize> +
-        ops::Index<ops::Range<usize>, Output=[T]> +
-        ops::IndexMut<ops::Range<usize>> +
-        ops::Index<ops::RangeFrom<usize>, Output=[T]> +
-        ops::IndexMut<ops::RangeFrom<usize>> +
-        ops::Index<ops::RangeTo<usize>, Output=[T]> +
-        ops::IndexMut<ops::RangeTo<usize>> +
-        ops::Index<ops::RangeFull, Output=[T]> +
-        ops::IndexMut<ops::RangeFull> +
-        ops::DerefMut<Target = [T]> +
-        Extend<T> {
-
+    ops::Index<usize, Output = T>
+    + ops::IndexMut<usize>
+    + ops::Index<ops::Range<usize>, Output = [T]>
+    + ops::IndexMut<ops::Range<usize>>
+    + ops::Index<ops::RangeFrom<usize>, Output = [T]>
+    + ops::IndexMut<ops::RangeFrom<usize>>
+    + ops::Index<ops::RangeTo<usize>, Output = [T]>
+    + ops::IndexMut<ops::RangeTo<usize>>
+    + ops::Index<ops::RangeFull, Output = [T]>
+    + ops::IndexMut<ops::RangeFull>
+    + ops::DerefMut<Target = [T]>
+    + Extend<T>
+{
     /// Append an element to the vector.
     fn push(&mut self, value: T);
 
@@ -213,12 +213,14 @@ pub struct Drain<'a, T: 'a> {
     iter: slice::IterMut<'a, T>,
 }
 
-impl<'a, T: 'a> Iterator for Drain<'a,T> {
+impl<'a, T: 'a> Iterator for Drain<'a, T> {
     type Item = T;
 
     #[inline]
     fn next(&mut self) -> Option<T> {
-        self.iter.next().map(|reference| unsafe { ptr::read(reference) })
+        self.iter
+            .next()
+            .map(|reference| unsafe { ptr::read(reference) })
     }
 
     #[inline]
@@ -230,13 +232,15 @@ impl<'a, T: 'a> Iterator for Drain<'a,T> {
 impl<'a, T: 'a> DoubleEndedIterator for Drain<'a, T> {
     #[inline]
     fn next_back(&mut self) -> Option<T> {
-        self.iter.next_back().map(|reference| unsafe { ptr::read(reference) })
+        self.iter
+            .next_back()
+            .map(|reference| unsafe { ptr::read(reference) })
     }
 }
 
-impl<'a, T> ExactSizeIterator for Drain<'a, T> { }
+impl<'a, T> ExactSizeIterator for Drain<'a, T> {}
 
-impl<'a, T: 'a> Drop for Drain<'a,T> {
+impl<'a, T: 'a> Drop for Drain<'a, T> {
     fn drop(&mut self) {
         // Destroy the remaining elements.
         for _ in self.by_ref() {}
@@ -256,7 +260,10 @@ struct SetLenOnDrop<'a> {
 impl<'a> SetLenOnDrop<'a> {
     #[inline]
     fn new(len: &'a mut usize) -> Self {
-        SetLenOnDrop { local_len: *len, len: len }
+        SetLenOnDrop {
+            local_len: *len,
+            len: len,
+        }
     }
 
     #[inline]
@@ -269,6 +276,24 @@ impl<'a> Drop for SetLenOnDrop<'a> {
     #[inline]
     fn drop(&mut self) {
         *self.len = self.local_len;
+    }
+}
+
+struct DropOnPanic<T> {
+    start: *mut T,
+    skip: ops::Range<usize>,
+    len: usize,
+}
+
+impl<T> Drop for DropOnPanic<T> {
+    fn drop(&mut self) {
+        for i in 0..self.len {
+            if !self.skip.contains(&i) {
+                unsafe {
+                    ptr::drop_in_place(self.start.add(i));
+                }
+            }
+        }
     }
 }
 
@@ -459,7 +484,7 @@ impl<A: Array> StackVec<A> {
             if self.len() == 0 {
                 None
             } else {
-                self.length -=1;
+                self.length -= 1;
                 Some(ptr::read(self.as_mut_ptr().padd(self.length)))
             }
         }
@@ -543,47 +568,69 @@ impl<A: Array> StackVec<A> {
 
     /// Insert multiple elements at position `index`, shifting all following elements toward the
     /// back.
-    pub fn insert_many<I: iter::IntoIterator<Item=A::Item>>(&mut self, index: usize, iterable: I) {
-        let iter = iterable.into_iter();
+    pub fn insert_many<I: iter::IntoIterator<Item = A::Item>>(
+        &mut self,
+        index: usize,
+        iterable: I,
+    ) {
+        let mut iter = iterable.into_iter();
         if index == self.len() {
             return self.extend(iter);
         }
 
         let (lower_size_bound, _) = iter.size_hint();
-        assert!(lower_size_bound <= lib::isize::MAX as usize);  // Ensure offset is indexable
-        assert!(index + lower_size_bound >= index);             // Protect against overflow
+        assert!(lower_size_bound <= lib::isize::MAX as usize); // Ensure offset is indexable
+        assert!(index + lower_size_bound >= index); // Protect against overflow
         assert!(self.len() + lower_size_bound <= self.capacity());
 
+        let mut num_added = 0;
+        let old_len = self.len();
+        assert!(index <= old_len);
+
+
         unsafe {
-            let old_len = self.len();
-            assert!(index <= old_len);
-            let mut ptr = self.as_mut_ptr().padd(index);
+            let start = self.as_mut_ptr();
+            let ptr = start.add(index);
 
             // Move the trailing elements.
             ptr::copy(ptr, ptr.padd(lower_size_bound), old_len - index);
 
             // In case the iterator panics, don't double-drop the items we just copied above.
-            self.set_len(index);
+            self.set_len(0);
+            let mut guard = DropOnPanic {
+                start,
+                skip: index..(index + lower_size_bound),
+                len: old_len + lower_size_bound,
+            };
 
-            let mut num_added = 0;
-            for element in iter {
-                let mut cur = ptr.padd(num_added);
-                if num_added >= lower_size_bound {
-                    // Iterator provided more elements than the hint.  Move trailing items again.
-                    assert!(self.len() + 1 <= self.capacity());
-                    ptr = self.as_mut_ptr().padd(index);
-                    cur = ptr.padd(num_added);
-                    ptr::copy(cur, cur.padd(1), old_len - index);
-                }
+            while num_added < lower_size_bound {
+                let element = match iter.next() {
+                    Some(x) => x,
+                    None => break,
+                };
+                let cur = ptr.add(num_added);
                 ptr::write(cur, element);
+                guard.skip.start += 1;
                 num_added += 1;
             }
-            if num_added < lower_size_bound {
-                // Iterator provided fewer elements than the hint
-                ptr::copy(ptr.padd(lower_size_bound), ptr.padd(num_added), old_len - index);
-            }
 
+            if num_added < lower_size_bound {
+                // Iterator provided fewer elements than the hint. Move the tail backward.
+                ptr::copy(
+                    ptr.add(lower_size_bound),
+                    ptr.add(num_added),
+                    old_len - index,
+                );
+            }
+            // There are no more duplicate or uninitialized slots, so the guard is not needed.
             self.set_len(old_len + num_added);
+            mem::forget(guard);
+
+            // Insert any remaining elements one-by-one.
+            for element in iter {
+                self.insert(index + num_added, element);
+                num_added += 1;
+            }
         }
     }
 
@@ -624,13 +671,17 @@ impl<A: Array> StackVec<A> {
     }
 
     /// Removes consecutive duplicate elements.
-    pub fn dedup(&mut self) where A::Item: PartialEq<A::Item> {
+    pub fn dedup(&mut self)
+    where
+        A::Item: PartialEq<A::Item>,
+    {
         self.dedup_by(|a, b| a == b);
     }
 
     /// Removes consecutive duplicate elements using the given equality relation.
     pub fn dedup_by<F>(&mut self, mut same_bucket: F)
-        where F: FnMut(&mut A::Item, &mut A::Item) -> bool
+    where
+        F: FnMut(&mut A::Item, &mut A::Item) -> bool,
     {
         // See the implementation of Vec::dedup_by in the
         // standard library for an explanation of this algorithm.
@@ -661,14 +712,18 @@ impl<A: Array> StackVec<A> {
 
     /// Removes consecutive elements that map to the same key.
     pub fn dedup_by_key<F, K>(&mut self, mut key: F)
-        where F: FnMut(&mut A::Item) -> K,
-              K: PartialEq<K>
+    where
+        F: FnMut(&mut A::Item) -> K,
+        K: PartialEq<K>,
     {
         self.dedup_by(|a, b| key(a) == key(b));
     }
 }
 
-impl<A: Array> StackVec<A> where A::Item: Copy {
+impl<A: Array> StackVec<A>
+where
+    A::Item: Copy,
+{
     /// Copy the elements from a slice into a new `StackVec`.
     ///
     /// For slices of `Copy` types, this is more efficient than `StackVec::from(slice)`.
@@ -681,7 +736,7 @@ impl<A: Array> StackVec<A> where A::Item: Copy {
                 let ptr = data.as_mut_ptr() as *mut A::Item;
                 ptr::copy_nonoverlapping(slice.as_ptr(), ptr, slice.len());
                 data
-            }
+            },
         }
     }
 
@@ -711,7 +766,10 @@ impl<A: Array> StackVec<A> where A::Item: Copy {
     }
 }
 
-impl<A: Array> StackVec<A> where A::Item: Clone {
+impl<A: Array> StackVec<A>
+where
+    A::Item: Clone,
+{
     /// Resizes the vector so that its length is equal to `len`.
     ///
     /// If `len` is less than the current length, the vector simply truncated.
@@ -819,7 +877,10 @@ impl<A: Array<Item = u8>> io::Write for StackVec<A> {
     }
 }
 
-impl<'a, A: Array> From<&'a [A::Item]> for StackVec<A> where A::Item: Clone {
+impl<'a, A: Array> From<&'a [A::Item]> for StackVec<A>
+where
+    A::Item: Clone,
+{
     #[inline]
     fn from(slice: &'a [A::Item]) -> StackVec<A> {
         slice.into_iter().cloned().collect()
@@ -856,7 +917,7 @@ macro_rules! impl_index {
                 &mut (&mut **self)[index]
             }
         }
-    }
+    };
 }
 
 impl_index!(usize, A::Item);
@@ -871,7 +932,10 @@ impl_index!(ops::RangeInclusive<usize>, [A::Item]);
 #[cfg(has_range_inclusive)]
 impl_index!(ops::RangeToInclusive<usize>, [A::Item]);
 
-impl<A: Array> ExtendFromSlice<A::Item> for StackVec<A> where A::Item: Copy {
+impl<A: Array> ExtendFromSlice<A::Item> for StackVec<A>
+where
+    A::Item: Copy,
+{
     fn extend_from_slice(&mut self, other: &[A::Item]) {
         StackVec::extend_from_slice(self, other)
     }
@@ -890,7 +954,7 @@ impl<A: Array> VecLike<A::Item> for StackVec<A> {
 }
 
 impl<A: Array> iter::FromIterator<A::Item> for StackVec<A> {
-    fn from_iter<I: iter::IntoIterator<Item=A::Item>>(iterable: I) -> StackVec<A> {
+    fn from_iter<I: iter::IntoIterator<Item = A::Item>>(iterable: I) -> StackVec<A> {
         let mut v = StackVec::new();
         v.extend(iterable);
         v
@@ -898,7 +962,7 @@ impl<A: Array> iter::FromIterator<A::Item> for StackVec<A> {
 }
 
 impl<A: Array> Extend<A::Item> for StackVec<A> {
-    fn extend<I: iter::IntoIterator<Item=A::Item>>(&mut self, iterable: I) {
+    fn extend<I: iter::IntoIterator<Item = A::Item>>(&mut self, iterable: I) {
         // size_hint() has no safety guarantees, and TrustedLen
         // is nightly only, so we can't do any optimizations with
         // size_hint.
@@ -908,7 +972,10 @@ impl<A: Array> Extend<A::Item> for StackVec<A> {
     }
 }
 
-impl<A: Array> fmt::Debug for StackVec<A> where A::Item: fmt::Debug {
+impl<A: Array> fmt::Debug for StackVec<A>
+where
+    A::Item: fmt::Debug,
+{
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_list().entries(self.iter()).finish()
     }
@@ -929,7 +996,10 @@ impl<A: Array> Drop for StackVec<A> {
     }
 }
 
-impl<A: Array> Clone for StackVec<A> where A::Item: Clone {
+impl<A: Array> Clone for StackVec<A>
+where
+    A::Item: Clone,
+{
     fn clone(&self) -> StackVec<A> {
         let mut new_vector = StackVec::new();
         for element in self.iter() {
@@ -940,7 +1010,8 @@ impl<A: Array> Clone for StackVec<A> where A::Item: Clone {
 }
 
 impl<A: Array, B: Array> PartialEq<StackVec<B>> for StackVec<A>
-    where A::Item: PartialEq<B::Item>
+where
+    A::Item: PartialEq<B::Item>,
 {
     #[inline]
     fn eq(&self, other: &StackVec<B>) -> bool {
@@ -953,31 +1024,38 @@ impl<A: Array, B: Array> PartialEq<StackVec<B>> for StackVec<A>
     }
 }
 
-impl<A: Array> Eq for StackVec<A> where A::Item: Eq {
-}
+impl<A: Array> Eq for StackVec<A> where A::Item: Eq {}
 
-impl<A: Array> PartialOrd for StackVec<A> where A::Item: PartialOrd {
+impl<A: Array> PartialOrd for StackVec<A>
+where
+    A::Item: PartialOrd,
+{
     #[inline]
     fn partial_cmp(&self, other: &StackVec<A>) -> Option<cmp::Ordering> {
         PartialOrd::partial_cmp(&**self, &**other)
     }
 }
 
-impl<A: Array> Ord for StackVec<A> where A::Item: Ord {
+impl<A: Array> Ord for StackVec<A>
+where
+    A::Item: Ord,
+{
     #[inline]
     fn cmp(&self, other: &StackVec<A>) -> cmp::Ordering {
         Ord::cmp(&**self, &**other)
     }
 }
 
-impl<A: Array> hash::Hash for StackVec<A> where A::Item: hash::Hash {
+impl<A: Array> hash::Hash for StackVec<A>
+where
+    A::Item: hash::Hash,
+{
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         (**self).hash(state)
     }
 }
 
-unsafe impl<A: Array> Send for StackVec<A> where A::Item: Send {
-}
+unsafe impl<A: Array> Send for StackVec<A> where A::Item: Send {}
 
 /// An iterator that consumes a `StackVec` and yields its items by value.
 ///
@@ -992,8 +1070,7 @@ pub struct IntoIter<A: Array> {
 
 impl<A: Array> Drop for IntoIter<A> {
     fn drop(&mut self) {
-        for _ in self {
-        }
+        for _ in self {}
     }
 }
 
@@ -1004,8 +1081,7 @@ impl<A: Array> Iterator for IntoIter<A> {
     fn next(&mut self) -> Option<A::Item> {
         if self.current == self.end {
             None
-        }
-        else {
+        } else {
             unsafe {
                 let current = self.current;
                 self.current += 1;
@@ -1026,8 +1102,7 @@ impl<A: Array> DoubleEndedIterator for IntoIter<A> {
     fn next_back(&mut self) -> Option<A::Item> {
         if self.current == self.end {
             None
-        }
-        else {
+        } else {
             unsafe {
                 self.end -= 1;
                 Some(ptr::read(self.data.as_ptr().padd(self.end)))
@@ -1036,8 +1111,7 @@ impl<A: Array> DoubleEndedIterator for IntoIter<A> {
     }
 }
 
-impl<A: Array> ExactSizeIterator for IntoIter<A> {
-}
+impl<A: Array> ExactSizeIterator for IntoIter<A> {}
 
 impl<A: Array> IntoIterator for StackVec<A> {
     type IntoIter = IntoIter<A>;
@@ -1136,10 +1210,91 @@ macro_rules! stackvec {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::lib::iter::FromIterator;
     use crate::lib::borrow::ToOwned;
     use crate::lib::boxed::Box;
+    use crate::lib::iter::FromIterator;
     use crate::lib::rc::Rc;
+
+    struct BadBoundsIterator1(u8);
+
+    impl BadBoundsIterator1 {
+        pub fn new() -> Self {
+            BadBoundsIterator1(0)
+        }
+    }
+
+    impl Iterator for BadBoundsIterator1 {
+        type Item = u8;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            self.0 += 1;
+            if self.0 >= 10 {
+                None
+            } else {
+                Some(0x41)
+            }
+        }
+
+        fn size_hint(&self) -> (usize, Option<usize>) {
+            let lower_bound = 20;
+            let upper_bound = Some(0);
+            (lower_bound, upper_bound)
+        }
+    }
+
+    struct BadBoundsIterator2(u8);
+
+    impl BadBoundsIterator2 {
+        pub fn new() -> Self {
+            BadBoundsIterator2(0)
+        }
+    }
+
+    impl Iterator for BadBoundsIterator2 {
+        type Item = u8;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            self.0 += 1;
+            if self.0 >= 30 {
+                None
+            } else {
+                Some(0x41)
+            }
+        }
+
+        fn size_hint(&self) -> (usize, Option<usize>) {
+            let lower_bound = 0;
+            let upper_bound = Some(0);
+            (lower_bound, upper_bound)
+        }
+    }
+
+    struct BadSizeHint(u8);
+
+    impl BadSizeHint {
+        pub fn new(start: u8) -> Self {
+            BadSizeHint(start)
+        }
+    }
+
+    impl Iterator for BadSizeHint {
+        type Item = u8;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            self.0 += 1;
+            if self.0 >= 30 {
+                None
+            } else {
+                Some(0x41)
+            }
+        }
+
+        fn size_hint(&self) -> (usize, Option<usize>) {
+            let lower_bound = 0;
+            let upper_bound = None;
+            (lower_bound, upper_bound)
+        }
+    }
 
     #[test]
     pub fn test_zero() {
@@ -1161,10 +1316,7 @@ mod test {
         let mut v = StackVec::<[_; 16]>::new();
         v.push("hello".to_owned());
         v.push("there".to_owned());
-        assert_eq!(&*v, &[
-            "hello".to_owned(),
-            "there".to_owned(),
-        ][..]);
+        assert_eq!(&*v, &["hello".to_owned(), "there".to_owned(),][..]);
     }
 
     #[test]
@@ -1177,12 +1329,15 @@ mod test {
         v.push("burma".to_owned());
         assert_eq!(v[0], "hello");
         v.push("shave".to_owned());
-        assert_eq!(&*v, &[
-            "hello".to_owned(),
-            "there".to_owned(),
-            "burma".to_owned(),
-            "shave".to_owned(),
-        ][..]);
+        assert_eq!(
+            &*v,
+            &[
+                "hello".to_owned(),
+                "there".to_owned(),
+                "burma".to_owned(),
+                "shave".to_owned(),
+            ][..]
+        );
     }
 
     #[test]
@@ -1197,16 +1352,19 @@ mod test {
         v.push("there".to_owned());
         v.push("burma".to_owned());
         v.push("shave".to_owned());
-        assert_eq!(&*v, &[
-            "hello".to_owned(),
-            "there".to_owned(),
-            "burma".to_owned(),
-            "shave".to_owned(),
-            "hello".to_owned(),
-            "there".to_owned(),
-            "burma".to_owned(),
-            "shave".to_owned(),
-        ][..]);
+        assert_eq!(
+            &*v,
+            &[
+                "hello".to_owned(),
+                "there".to_owned(),
+                "burma".to_owned(),
+                "shave".to_owned(),
+                "hello".to_owned(),
+                "there".to_owned(),
+                "burma".to_owned(),
+                "shave".to_owned(),
+            ][..]
+        );
     }
 
     /// https://github.com/servo/rust-smallvec/issues/4
@@ -1311,7 +1469,53 @@ mod test {
         }
         assert_eq!(v.len(), 4);
         v.insert_many(1, [5, 6].iter().cloned());
-        assert_eq!(&v.iter().map(|v| *v).collect::<Vec<_>>(), &[0, 5, 6, 1, 2, 3]);
+        assert_eq!(
+            &v.iter().map(|v| *v).collect::<Vec<_>>(),
+            &[0, 5, 6, 1, 2, 3]
+        );
+    }
+
+    #[test]
+    fn test_insert_many_buggy_iterator() {
+        let mut v: StackVec<[u8; 64]> = StackVec::new();
+        for x in 0..4 {
+            v.push(x);
+        }
+        v.insert_many(1, BadBoundsIterator1::new());
+        assert_eq!(
+            &v.iter().map(|v| *v).collect::<Vec<_>>(),
+            &[0, 65, 65, 65, 65, 65, 65, 65, 65, 65, 1, 2, 3]
+        );
+
+        let mut v: StackVec<[u8; 64]> = StackVec::new();
+        for x in 0..4 {
+            v.push(x);
+        }
+        v.insert_many(1, BadBoundsIterator2::new());
+        assert_eq!(
+            &v.iter().map(|v| *v).collect::<Vec<_>>(),
+            &[0, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 1, 2, 3]
+        );
+
+        let mut v: StackVec<[u8; 64]> = StackVec::new();
+        for x in 0..4 {
+            v.push(x);
+        }
+        v.insert_many(1, BadSizeHint::new(1));
+        assert_eq!(
+            &v.iter().map(|v| *v).collect::<Vec<_>>(),
+            &[0, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 65, 1, 2, 3]
+        );
+    }
+
+    #[should_panic]
+    #[test]
+    fn test_insert_many_panic_buggy_iterator() {
+        let mut v: StackVec<[u8; 8]> = StackVec::new();
+        for x in 0..4 {
+            v.push(x);
+        }
+        v.insert_many(1, BadBoundsIterator2::new());
     }
 
     #[test]
@@ -1322,7 +1526,10 @@ mod test {
         }
         assert_eq!(v.len(), 4);
         v.insert_from_slice(1, &[5, 6]);
-        assert_eq!(&v.iter().map(|v| *v).collect::<Vec<_>>(), &[0, 5, 6, 1, 2, 3]);
+        assert_eq!(
+            &v.iter().map(|v| *v).collect::<Vec<_>>(),
+            &[0, 5, 6, 1, 2, 3]
+        );
     }
 
     #[test]
@@ -1333,7 +1540,10 @@ mod test {
         }
         assert_eq!(v.len(), 4);
         v.extend_from_slice(&[5, 6]);
-        assert_eq!(&v.iter().map(|v| *v).collect::<Vec<_>>(), &[0, 1, 2, 3, 5, 6]);
+        assert_eq!(
+            &v.iter().map(|v| *v).collect::<Vec<_>>(),
+            &[0, 1, 2, 3, 5, 6]
+        );
     }
 
     #[test]
@@ -1395,8 +1605,8 @@ mod test {
     #[cfg(feature = "std")]
     #[test]
     fn test_hash() {
-        use std::hash::Hash;
         use std::collections::hash_map::DefaultHasher;
+        use std::hash::Hash;
 
         {
             let mut a: StackVec<[u32; 2]> = StackVec::new();
@@ -1500,7 +1710,10 @@ mod test {
     #[test]
     fn test_from_slice() {
         assert_eq!(&StackVec::<[u32; 2]>::from_slice(&[1][..])[..], [1]);
-        assert_eq!(&StackVec::<[u32; 3]>::from_slice(&[1, 2, 3][..])[..], [1, 2, 3]);
+        assert_eq!(
+            &StackVec::<[u32; 3]>::from_slice(&[1, 2, 3][..])[..],
+            [1, 2, 3]
+        );
     }
 
     #[test]
