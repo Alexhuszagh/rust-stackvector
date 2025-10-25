@@ -52,38 +52,6 @@ use lib::{cmp, fmt, hash, iter, mem, ops, ptr, slice};
 #[cfg(feature = "std")]
 use lib::io;
 
-// POINTER METHODS
-
-// Certain pointer methods aren't implemented below Rustc versions 1.26.
-// We implement a dummy version here.
-
-trait PointerMethods {
-    // Add to the pointer (use padd to avoid conflict with ptr::add).
-    unsafe fn padd(self, count: usize) -> Self;
-}
-
-impl<T> PointerMethods for *const T {
-    #[inline(always)]
-    unsafe fn padd(self, count: usize) -> Self {
-        #[cfg(has_pointer_methods)]
-        return self.add(count);
-
-        #[cfg(not(has_pointer_methods))]
-        return self.offset(count as isize);
-    }
-}
-
-impl<T> PointerMethods for *mut T {
-    #[inline(always)]
-    unsafe fn padd(self, count: usize) -> Self {
-        #[cfg(has_pointer_methods)]
-        return self.add(count);
-
-        #[cfg(not(has_pointer_methods))]
-        return self.offset(count as isize);
-    }
-}
-
 // ARRAY
 
 /// Types that can be used as the backing store for a StackVec
@@ -269,6 +237,7 @@ impl<'a> SetLenOnDrop<'a> {
     #[inline]
     unsafe fn increment_len(&mut self, increment: usize) {
         self.local_len += increment;
+        debug_assert!(self.local_len <= *self.len);
     }
 }
 
@@ -456,7 +425,7 @@ impl<A: Array> StackVec<A> {
     }
 
     /// Empty the vector and return an iterator over its former contents.
-    pub fn drain(&mut self) -> Drain<A::Item> {
+    pub fn drain(&mut self) -> Drain<'_, A::Item> {
         unsafe {
             let slice = slice::from_raw_parts_mut(self.as_mut_ptr(), self.len());
             self.set_len(0);
@@ -472,7 +441,7 @@ impl<A: Array> StackVec<A> {
     pub fn push(&mut self, value: A::Item) {
         assert!(self.len() < self.capacity());
         unsafe {
-            ptr::write(self.as_mut_ptr().padd(self.length), value);
+            ptr::write(self.as_mut_ptr().add(self.length), value);
             self.length += 1;
         }
     }
@@ -485,7 +454,7 @@ impl<A: Array> StackVec<A> {
                 None
             } else {
                 self.length -= 1;
-                Some(ptr::read(self.as_mut_ptr().padd(self.length)))
+                Some(ptr::read(self.as_mut_ptr().add(self.length)))
             }
         }
     }
@@ -499,7 +468,7 @@ impl<A: Array> StackVec<A> {
         unsafe {
             while len < self.length {
                 self.length -= 1;
-                ptr::drop_in_place(self.as_mut_ptr().padd(self.length));
+                ptr::drop_in_place(self.as_mut_ptr().add(self.length));
             }
         }
     }
@@ -546,7 +515,7 @@ impl<A: Array> StackVec<A> {
         assert!(index < self.len());
         unsafe {
             self.length -= 1;
-            let ptr = self.as_mut_ptr().padd(index);
+            let ptr = self.as_mut_ptr().add(index);
             let item = ptr::read(ptr);
             ptr::copy(ptr.offset(1), ptr, self.length - index);
             item
@@ -559,7 +528,7 @@ impl<A: Array> StackVec<A> {
     pub fn insert(&mut self, index: usize, element: A::Item) {
         assert!(index < self.len() && self.len() < self.capacity());
         unsafe {
-            let ptr = self.as_mut_ptr().padd(index);
+            let ptr = self.as_mut_ptr().add(index);
             ptr::copy(ptr, ptr.offset(1), self.length - index);
             ptr::write(ptr, element);
             self.length += 1;
@@ -587,13 +556,12 @@ impl<A: Array> StackVec<A> {
         let old_len = self.len();
         assert!(index <= old_len);
 
-
         unsafe {
             let start = self.as_mut_ptr();
             let ptr = start.add(index);
 
             // Move the trailing elements.
-            ptr::copy(ptr, ptr.padd(lower_size_bound), old_len - index);
+            ptr::copy(ptr, ptr.add(lower_size_bound), old_len - index);
 
             // In case the iterator panics, don't double-drop the items we just copied above.
             self.set_len(0);
@@ -749,8 +717,8 @@ where
         unsafe {
             let len = self.len();
             let slice_ptr = slice.as_ptr();
-            let ptr = self.as_mut_ptr().padd(index);
-            ptr::copy(ptr, ptr.padd(slice.len()), len - index);
+            let ptr = self.as_mut_ptr().add(index);
+            ptr::copy(ptr, ptr.add(slice.len()), len - index);
             ptr::copy_nonoverlapping(slice_ptr, ptr, slice.len());
             self.set_len(len + slice.len());
         }
@@ -925,11 +893,7 @@ impl_index!(ops::Range<usize>, [A::Item]);
 impl_index!(ops::RangeFrom<usize>, [A::Item]);
 impl_index!(ops::RangeFull, [A::Item]);
 impl_index!(ops::RangeTo<usize>, [A::Item]);
-
-#[cfg(has_range_inclusive)]
 impl_index!(ops::RangeInclusive<usize>, [A::Item]);
-
-#[cfg(has_range_inclusive)]
 impl_index!(ops::RangeToInclusive<usize>, [A::Item]);
 
 impl<A: Array> ExtendFromSlice<A::Item> for StackVec<A>
@@ -1085,7 +1049,7 @@ impl<A: Array> Iterator for IntoIter<A> {
             unsafe {
                 let current = self.current;
                 self.current += 1;
-                Some(ptr::read(self.data.as_ptr().padd(current)))
+                Some(ptr::read(self.data.as_ptr().add(current)))
             }
         }
     }
@@ -1105,7 +1069,7 @@ impl<A: Array> DoubleEndedIterator for IntoIter<A> {
         } else {
             unsafe {
                 self.end -= 1;
-                Some(ptr::read(self.data.as_ptr().padd(self.end)))
+                Some(ptr::read(self.data.as_ptr().add(self.end)))
             }
         }
     }
