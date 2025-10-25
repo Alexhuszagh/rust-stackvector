@@ -267,7 +267,7 @@ impl<'a> SetLenOnDrop<'a> {
     }
 
     #[inline]
-    fn increment_len(&mut self, increment: usize) {
+    unsafe fn increment_len(&mut self, increment: usize) {
         self.local_len += increment;
     }
 }
@@ -323,7 +323,7 @@ pub struct StackVec<A: Array> {
     // Publicly expose the fields, so they may be used in constant
     // initialization.
     pub data: mem::MaybeUninit<A>,
-    pub length: usize,
+    length: usize,
 }
 
 impl<A: Array> StackVec<A> {
