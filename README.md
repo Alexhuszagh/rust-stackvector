@@ -1,5 +1,4 @@
-rust-stackvector
-================
+# stackvector
 
 [Documentation](https://docs.rs/stackvector/)
 
@@ -7,7 +6,7 @@ rust-stackvector
 
 "StackVec": vector-like facade for stack-allocated arrays.
 
-# Comparison to ArrayVec
+## Comparison to ArrayVec
 
 [ArrayVec](https://github.com/bluss/arrayvec) is a relatively mature stack vector implementation, using a backing array like stackvector. The main differences between ArrayVec and StackVec are in the compatibility with Vec's API, as well as the ease-of-creation.
 
@@ -25,12 +24,12 @@ Likewise, stackvector is missing certain convenience methods that are not presen
 
 **Version Support**
 
-Both ArrayVec and stackvector have support for Rustc versions as old as 1.20.0.
+stackvector has support for Rustc versions as old as 1.60.0.
 
-# License
+## License
 
 StackVector is derived from Servo's [smallvec](https://github.com/servo/rust-smallve), and like smallvec, it is dual licensed under either the MIT or Apache 2.0 license.
 
-# Version Support
+## Version Support
 
-Stackvector has been tested on version of Rustc as low as 1.36.0 (needed for `mem::MaybeUninit`).
+Stackvector has been tested on version of Rustc as low as 1.60.0.
