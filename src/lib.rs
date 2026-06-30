@@ -21,36 +21,11 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-#[cfg(all(test, not(feature = "std")))]
-#[macro_use]
 extern crate alloc;
 
-#[cfg(all(not(test), not(feature = "std")))]
-extern crate alloc;
-
-#[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
-
-extern crate unreachable;
-use unreachable::UncheckedOptionExt;
-
-/// Facade around the core features for name mangling.
-pub(crate) mod lib {
-    #[cfg(feature = "std")]
-    pub(crate) use std::*;
-
-    #[cfg(not(feature = "std"))]
-    pub(crate) use core::*;
-
-    #[cfg(all(test, not(feature = "std")))]
-    pub(crate) use alloc::{borrow, boxed, rc};
-}
-
-use lib::borrow::{Borrow, BorrowMut};
-use lib::{cmp, fmt, hash, iter, mem, ops, ptr, slice};
-
-#[cfg(feature = "std")]
-use lib::io;
+use alloc::borrow::{Borrow, BorrowMut};
+use core::{cmp, fmt, hash, iter, mem, ops, ptr, slice};
 
 // ARRAY
 
@@ -237,7 +212,6 @@ impl<'a> SetLenOnDrop<'a> {
     #[inline]
     unsafe fn increment_len(&mut self, increment: usize) {
         self.local_len += increment;
-        debug_assert!(self.local_len <= *self.len);
     }
 }
 
@@ -310,6 +284,12 @@ impl<A: Array> StackVec<A> {
     /// Elements will be copied to the inline buffer if vec.len() <= A::size().
     ///
     /// ```rust
+    /// #![cfg_attr(not(feature = "std"), no_std)]
+    ///
+    /// extern crate alloc;
+    ///
+    /// use alloc::vec;
+    ///
     /// use stackvector::StackVec;
     ///
     /// let vec = vec![1, 2, 3, 4, 5];
@@ -498,7 +478,7 @@ impl<A: Array> StackVec<A> {
     pub fn swap_remove(&mut self, index: usize) -> A::Item {
         let len = self.len();
         self.swap(len - 1, index);
-        unsafe { self.pop().unchecked_unwrap() }
+        unsafe { self.pop().unwrap_unchecked() }
     }
 
     /// Remove all elements from the vector.
@@ -548,7 +528,7 @@ impl<A: Array> StackVec<A> {
         }
 
         let (lower_size_bound, _) = iter.size_hint();
-        assert!(lower_size_bound <= lib::isize::MAX as usize); // Ensure offset is indexable
+        assert!(lower_size_bound <= isize::MAX as usize); // Ensure offset is indexable
         assert!(index + lower_size_bound >= index); // Protect against overflow
         assert!(self.len() + lower_size_bound <= self.capacity());
 
@@ -826,21 +806,21 @@ impl<A: Array> BorrowMut<[A::Item]> for StackVec<A> {
 }
 
 #[cfg(feature = "std")]
-impl<A: Array<Item = u8>> io::Write for StackVec<A> {
+impl<A: Array<Item = u8>> ::std::io::Write for StackVec<A> {
     #[inline]
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+    fn write(&mut self, buf: &[u8]) -> ::std::io::Result<usize> {
         self.extend_from_slice(buf);
         Ok(buf.len())
     }
 
     #[inline]
-    fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {
+    fn write_all(&mut self, buf: &[u8]) -> ::std::io::Result<()> {
         self.extend_from_slice(buf);
         Ok(())
     }
 
     #[inline]
-    fn flush(&mut self) -> io::Result<()> {
+    fn flush(&mut self) -> ::std::io::Result<()> {
         Ok(())
     }
 }
@@ -1174,10 +1154,11 @@ macro_rules! stackvec {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::lib::borrow::ToOwned;
-    use crate::lib::boxed::Box;
-    use crate::lib::iter::FromIterator;
-    use crate::lib::rc::Rc;
+    use alloc::borrow::ToOwned;
+    use alloc::boxed::Box;
+    use alloc::rc::Rc;
+    use alloc::vec;
+    use core::iter::FromIterator;
 
     struct BadBoundsIterator1(u8);
 
@@ -1373,7 +1354,7 @@ mod test {
 
     #[test]
     fn into_iter_drop() {
-        use lib::cell::Cell;
+        use core::cell::Cell;
 
         struct DropCounter<'a>(&'a Cell<i32>);
 
@@ -1608,7 +1589,7 @@ mod test {
 
     #[test]
     fn test_borrow() {
-        use lib::borrow::Borrow;
+        use core::borrow::Borrow;
 
         let mut a: StackVec<[u32; 3]> = StackVec::new();
         a.push(1);
@@ -1621,7 +1602,7 @@ mod test {
 
     #[test]
     fn test_borrow_mut() {
-        use lib::borrow::BorrowMut;
+        use core::borrow::BorrowMut;
 
         let mut a: StackVec<[u32; 3]> = StackVec::new();
         a.push(1);
@@ -1800,7 +1781,7 @@ mod test {
     #[cfg(feature = "std")]
     #[test]
     fn test_write() {
-        use io::Write;
+        use std::io::Write;
 
         let data = [1, 2, 3, 4, 5];
 
