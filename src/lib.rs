@@ -251,7 +251,9 @@ impl<T, const N: usize> StackVec<T, N> {
     pub fn new() -> StackVec<T, N> {
         StackVec {
             length: 0,
-            data: [const { mem::MaybeUninit::uninit() }; N],
+            // FIXME: migrate to inline const when we drop support for rustc <= 1.79
+            //  [const { mem::MaybeUninit::uninit() }; N]
+            data: unsafe { mem::MaybeUninit::uninit().assume_init() },
         }
     }
 
@@ -349,7 +351,7 @@ impl<T, const N: usize> StackVec<T, N> {
             let mut local_len = SetLenOnDrop::new(&mut v.length);
             for (index, item) in buf.into_iter().take(len).enumerate() {
                 v.data[index].write(item);
-                unsafe { local_len.increment_len(1) };
+                local_len.increment_len(1);
             }
         }
 
