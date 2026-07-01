@@ -1,0 +1,65 @@
+name: Workflow
+
+on:
+  [pull_request, workflow_dispatch]
+
+jobs:
+  test:
+    name: Rust ${{matrix.rust}}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        rust: [1.60.0, stable, beta, nightly]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{matrix.rust}}
+      - run: cargo check
+      - run: cargo build
+      - run: cargo test
+
+  test-no-std:
+    name: Rust ${{matrix.rust}} ${{matrix.features}}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo check --no-default-features
+      - run: cargo build --no-default-features
+      - run: cargo test --no-default-features
+
+  miri:
+    name: Miri Test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        features: ['', std]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: nightly
+          components: miri
+      - run: cargo +nightly check --no-default-features --features=${{matrix.features}}
+      - run: cargo +nightly build --no-default-features --features=${{matrix.features}}
+      - run: cargo +nightly test --no-default-features --features=${{matrix.features}}
+      - run: cargo +nightly miri test --no-default-features --features=${{matrix.features}}
+
+  lint:
+    name: Lint Crate
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install latest nightly
+        uses: dtolnay/rust-toolchain@stable
+        with:
+            toolchain: nightly
+            components: rustfmt, clippy
+      - run: cargo fmt -- --check
+      - run: cargo clippy -- --deny warnings
+      - run: cargo clippy --no-default-features -- --deny warnings

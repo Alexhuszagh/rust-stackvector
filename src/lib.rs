@@ -20,6 +20,8 @@
 //! 2.0 license.
 
 #![cfg_attr(not(feature = "std"), no_std)]
+#![allow(unused_unsafe)]
+#![cfg_attr(feature = "lint", warn(unsafe_op_in_unsafe_fn))]
 
 extern crate alloc;
 
@@ -283,9 +285,14 @@ impl<T, const N: usize> StackVec<T, N> {
     }
 
     /// Construct a new `StackVec` from a `Vec<T>` without bounds checking.
+    ///
+    /// # Safety
+    ///
+    /// Safe as long as `vec.len() <= N`.
     #[allow(deprecated)]
     pub unsafe fn from_vec_unchecked(vec: Vec<T>) -> StackVec<T, N> {
-        let mut v = Self::new();
+        debug_assert!(vec.len() <= N);
+        let mut v: StackVec<T, N> = Self::new();
         let len = vec.len();
         for (index, item) in vec.into_iter().enumerate() {
             v.data[index].write(item);
@@ -344,14 +351,20 @@ impl<T, const N: usize> StackVec<T, N> {
     ///
     /// assert_eq!(&*stack_vec, &[1, 2, 3, 4, 5]);
     /// ```
+    ///
+    /// # Safety
+    ///
+    /// Safe as long as `len <= N` and `len <= buf.len()`.
     #[inline]
     pub unsafe fn from_buf_and_len_unchecked(buf: [T; N], len: usize) -> StackVec<T, N> {
+        debug_assert!(len <= N && len <= buf.len());
         let mut v = Self::new();
         {
             let mut local_len = SetLenOnDrop::new(&mut v.length);
             for (index, item) in buf.into_iter().take(len).enumerate() {
                 v.data[index].write(item);
-                local_len.increment_len(1);
+                // SAFETY: safe as long as len <= N && len <= buf.len()
+                unsafe { local_len.increment_len(1) };
             }
         }
 
@@ -363,6 +376,10 @@ impl<T, const N: usize> StackVec<T, N> {
     /// This will explicitly set the size of the vector, without actually
     /// modifying its buffers, so it is up to the caller to ensure that the
     /// vector is actually the specified size.
+    ///
+    /// # Safety
+    ///
+    /// Safe as long as `new_len <= N`.
     #[inline]
     pub unsafe fn set_len(&mut self, new_len: usize) {
         debug_assert!(new_len <= N);

@@ -16,3 +16,5 @@ version = "1.2.0"
 default = ["std"]
 # Use the `std` library. Required for `io` support.
 std = []
+# internal only: enable the lint checks
+lint = []
