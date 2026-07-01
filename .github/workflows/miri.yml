@@ -1,0 +1,23 @@
+name: Miri
+
+on:
+  [pull_request, workflow_dispatch]
+
+jobs:
+  build:
+    name: Miri Test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        features: ['', std]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: nightly
+          components: miri
+      - run: cargo +nightly check --no-default-features --features=${{matrix.features}}
+      - run: cargo +nightly build --no-default-features --features=${{matrix.features}}
+      - run: cargo +nightly test --no-default-features --features=${{matrix.features}}
+      - run: cargo +nightly miri test --no-default-features --features=${{matrix.features}}
